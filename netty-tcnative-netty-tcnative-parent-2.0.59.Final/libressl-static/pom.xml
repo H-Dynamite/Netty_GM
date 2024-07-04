@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Copyright 2016 The Netty Project
+  ~
+  ~ The Netty Project licenses this file to you under the Apache License,
+  ~ version 2.0 (the "License"); you may not use this file except in compliance
+  ~ with the License. You may obtain a copy of the License at:
+  ~
+  ~   http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+  ~ WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+  ~ License for the specific language governing permissions and limitations
+  ~ under the License.
+  -->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>io.netty</groupId>
+    <artifactId>netty-tcnative-parent</artifactId>
+    <version>2.0.59.Final</version>
+  </parent>
+  <artifactId>netty-tcnative-libressl-static</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Netty/TomcatNative [LibreSSL - Static]</name>
+  <description>
+    A Mavenized fork of Tomcat Native which incorporates various patches. This artifact is statically linked
+    to LibreSSL.
+  </description>
+
+  <properties>
+    <libresslSourceDir>${project.build.directory}/libressl-source</libresslSourceDir>
+    <libresslHome>${project.build.directory}/libressl</libresslHome>
+    <libresslArchive>libressl-${libresslVersion}.tar.gz</libresslArchive>
+    <linkStatic>true</linkStatic>
+    <compileLibrary>true</compileLibrary>
+    <!-- Don't deploy this artifact to Maven Central -->
+    <maven.deploy.skip>true</maven.deploy.skip>
+    <skipJapicmp>true</skipJapicmp>
+    <!-- We need to use the same module name for all our "native" impls as only one should be loaded -->
+    <javaModuleName>${javaModuleNameNative}</javaModuleName>
+  </properties>
+
+  <build>
+
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <artifactId>maven-jar-plugin</artifactId>
+          <configuration>
+            <archive>
+              <manifestEntries>
+                <Fragment-Host>io.netty.tcnative-classes</Fragment-Host>
+              </manifestEntries>
+            </archive>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+
+    <plugins>
+      <!-- Add the LibreSSL version to the manifest. -->
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <configuration>
+          <instructions>
+            <LibreSSL-Version>${libresslVersion}</LibreSSL-Version>
+          </instructions>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>add-source</goal>
+            </goals>
+            <configuration>
+              <sources>
+                <source>${generatedSourcesDir}/java</source>
+              </sources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+     <!--
+        Set the classifier property based on the settings of the os-detector-plugin.
+        Fedora-based systems use a different soname for OpenSSL than other linux distributions.
+        Use a custom classifier ending in "-fedora" when building on fedora-based systems.
+        Systems based on SUSE or Arch Linux build their OpenSSL library a bit differently and also
+        require a custom classifier: "-suse" and "-arch".
+      -->
+      <plugin>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <executions>
+          <!-- Build the additional JAR that contains the native library. -->
+          <execution>
+            <id>native-jar</id>
+            <phase>package</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <target>
+                <copy todir="${nativeJarWorkdir}">
+                  <zipfileset src="${defaultJarFile}" />
+                </copy>
+                <copy todir="${nativeJarWorkdir}" includeEmptyDirs="false">
+                  <zipfileset dir="${nativeLibOnlyDir}/META-INF/native" />
+                  <regexpmapper handledirsep="yes" from="^(?:[^/]+/)*([^/]+)$" to="META-INF/native/\1" />
+                </copy>
+                <!-- linux / osx -->
+                <move todir="${nativeJarWorkdir}/META-INF/native/" flatten="true">
+                  <fileset dir="${nativeJarWorkdir}/META-INF/native/" />
+                  <globmapper from="libnetty_tcnative.*" to="libnetty_tcnative_${os.detected.name}_${jniArch}.*" />
+                </move>
+                <!-- windows-->
+                <move todir="${nativeJarWorkdir}/META-INF/native/" flatten="true">
+                  <fileset dir="${nativeJarWorkdir}/META-INF/native/" />
+                  <globmapper from="netty_tcnative.*" to="netty_tcnative_${os.detected.name}_${jniArch}.*" />
+                </move>
+
+                <!-- Append the Bundle-NativeCode section -->
+                <manifest file="${nativeJarWorkdir}/META-INF/MANIFEST.MF" mode="update">
+                  <attribute name="Bundle-NativeCode" value="${tcnativeManifest}" />
+                </manifest>
+
+                <jar destfile="${nativeJarFile}" manifest="${nativeJarWorkdir}/META-INF/MANIFEST.MF" basedir="${nativeJarWorkdir}" index="true" excludes="META-INF/MANIFEST.MF,META-INF/INDEX.LIST" />
+                <!-- Adjust the classifier used for different OS distributions which provide differently-built openSSL libraries -->
+                <condition property="classifier" value="${jniClassifier}-fedora">
+                  <isset property="os.detected.release.like.fedora" />
+                </condition>
+                <condition property="classifier" value="${jniClassifier}-suse">
+                  <isset property="os.detected.release.like.suse" />
+                </condition>
+                <condition property="classifier" value="${jniClassifier}-arch">
+                  <isset property="os.detected.release.like.arch" />
+                </condition>
+                <condition property="classifier" value="${jniClassifier}">
+                  <not>
+                    <or>
+                      <isset property="os.detected.release.like.fedora" />
+                      <isset property="os.detected.release.like.suse" />
+                      <isset property="os.detected.release.like.arch" />
+                    </or>
+                  </not>
+                </condition>
+                <attachartifact file="${nativeJarFile}" classifier="${classifier}" type="jar" />
+              </target>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Configure the distribution statically linked against OpenSSL -->
+      <plugin>
+        <groupId>org.fusesource.hawtjni</groupId>
+        <artifactId>hawtjni-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>build-native-lib</id>
+            <goals>
+              <goal>generate</goal>
+              <goal>build</goal>
+            </goals>
+            <phase>compile</phase>
+            <configuration>
+              <name>netty_tcnative</name>
+              <nativeSourceDirectory>${generatedSourcesDir}/c</nativeSourceDirectory>
+              <customPackageDirectory>${generatedSourcesDir}/native-package</customPackageDirectory>
+              <libDirectory>${nativeLibOnlyDir}</libDirectory>
+              <forceAutogen>${forceAutogen}</forceAutogen>
+              <forceConfigure>${forceConfigure}</forceConfigure>
+              <windowsBuildTool>msbuild</windowsBuildTool>
+              <configureArgs>
+                <configureArg>--with-ssl=no</configureArg>
+                <configureArg>--with-static-libs</configureArg>
+                <configureArg>--libdir=${project.build.directory}/native-build/target/lib</configureArg>
+                <configureArg>${macOsxDeploymentTarget}</configureArg>
+                <configureArg>CFLAGS=-O3 -Werror -fno-omit-frame-pointer -fvisibility=hidden -Wunused -Wno-unused-value</configureArg>
+                <configureArg>CPPFLAGS=-DHAVE_OPENSSL -I${libresslSourceDir}/include</configureArg>
+                <configureArg>LDFLAGS=-L${libresslHome}/ssl -L${libresslHome}/crypto -L${libresslHome}/tls -ltls -lssl -lcrypto</configureArg>
+              </configureArgs>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <dependencies>
+    <dependency>
+      <groupId>${project.groupId}</groupId>
+      <artifactId>netty-tcnative-classes</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+
+  <profiles>
+    <profile>
+      <id>build-libressl-windows</id>
+      <activation>
+        <os>
+          <family>windows</family>
+        </os>
+      </activation>
+      <properties>
+        <msvcSslLibs>libssl-39.lib; libcrypto-38.lib; libtls-11.lib</msvcSslLibs>
+        <msvcSslLibDirs>${libresslHome}/x${archBits}</msvcSslLibDirs>
+        <libresslWindows>libressl-${libresslVersion}-windows</libresslWindows>
+        <libresslWindowsZip>${libresslWindows}.zip</libresslWindowsZip>
+      </properties>
+      <build>
+        <plugins>
+          <!-- Download the LibreSSL source -->
+          <plugin>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>build-libressl-windows</id>
+                <phase>generate-sources</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <get src="https://ftp.openbsd.org/pub/OpenBSD/LibreSSL/${libresslWindowsZip}" dest="${project.build.directory}/${libresslWindowsZip}" verbose="on" />
+                    <unzip src="${project.build.directory}/${libresslWindowsZip}" dest="${project.build.directory}/" />
+                    <move file="${project.build.directory}/${libresslWindows}" tofile="${libresslHome}" />
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>build-libressl-non-windows</id>
+      <activation>
+        <os>
+          <family>!windows</family>
+        </os>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <executions>
+              <!-- Download and build LibreSSL -->
+              <execution>
+                <id>source-libressl-non-windows</id>
+                <phase>generate-sources</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <!-- Add the ant tasks from ant-contrib -->
+                    <taskdef resource="net/sf/antcontrib/antcontrib.properties" />
+
+                    <if>
+                      <available file="${libresslSourceDir}" />
+                      <then>
+                        <echo message="LibreSSL was already downloaded, skipping the build step." />
+                      </then>
+                      <else>
+                        <echo message="Downloading LibreSSL" />
+
+                        <get src="https://ftp.openbsd.org/pub/OpenBSD/LibreSSL/${libresslArchive}" dest="${project.build.directory}/${libresslArchive}" verbose="on" />
+                        <checksum file="${project.build.directory}/${libresslArchive}" algorithm="SHA-256" property="${libresslSha256}" verifyProperty="isEqual" />
+                        <exec executable="tar" failonerror="true" dir="${project.build.directory}/" resolveexecutable="true">
+                          <arg value="xfv" />
+                          <arg value="${libresslArchive}" />
+                        </exec>
+                        <move file="${project.build.directory}/libressl-${libresslVersion}" tofile="${libresslSourceDir}" />
+                      </else>
+                    </if>
+                  </target>
+                </configuration>
+              </execution>
+              <execution>
+                <id>build-libressl-non-windows</id>
+                <phase>compile</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <!-- Add the ant tasks from ant-contrib -->
+                    <taskdef resource="net/sf/antcontrib/antcontrib.properties" />
+
+                    <if>
+                      <available file="${libresslHome}" />
+                      <then>
+                        <echo message="LibreSSL was already build, skipping the build step." />
+                      </then>
+                      <else>
+                        <echo message="Building LibreSSL" />
+                        <mkdir dir="${libresslHome}" />
+                        <exec executable="cmake" failonerror="true" dir="${libresslHome}" resolveexecutable="true">
+                          <arg value="-DCMAKE_POSITION_INDEPENDENT_CODE=TRUE" />
+                          <arg value="-DCMAKE_BUILD_TYPE=Release" />
+                          <arg value="-DCMAKE_ASM_FLAGS=-Wa,--noexecstack" />
+                          <arg value="-DCMAKE_C_FLAGS_RELEASE=-O3 -fno-omit-frame-pointer -fPIC" />
+                          <arg value="${cmakeOsxDeploymentTarget}" />
+                          <arg value="-GNinja" />
+                          <arg value="${libresslSourceDir}" />
+                        </exec>
+                        <if>
+                          <!-- may be called ninja-build or ninja -->
+                          <!-- See https://github.com/netty/netty-tcnative/issues/475 -->
+                          <available file="ninja-build" filepath="${env.PATH}" />
+                          <then>
+                            <exec executable="ninja-build" failonerror="true" dir="${libresslHome}" resolveexecutable="true" />
+                          </then>
+                          <else>
+                            <exec executable="ninja" failonerror="true" dir="${libresslHome}" resolveexecutable="true" />
+                          </else>
+                        </if>
+                      </else>
+                    </if>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

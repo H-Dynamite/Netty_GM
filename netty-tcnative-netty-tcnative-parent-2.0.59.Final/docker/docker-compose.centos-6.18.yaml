@@ -1,0 +1,28 @@
+version: "3"
+
+services:
+
+  runtime-setup:
+    image: netty-tcnative-centos:centos-6-1.8
+    build:
+      args:
+        centos_version : "6"
+        java_version : "8.0.352-zulu"
+
+  build:
+    image: netty-tcnative-centos:centos-6-1.8
+
+  build-clean:
+    image: netty-tcnative-centos:centos-6-1.8
+
+  deploy:
+    image: netty-tcnative-centos:centos-6-1.8
+
+  stage-snapshot:
+    image: netty-tcnative-centos:centos-6-1.8
+
+  stage-release:
+    image: netty-tcnative-centos:centos-6-1.8
+
+  shell:
+    image: netty-tcnative-centos:centos-6-1.8

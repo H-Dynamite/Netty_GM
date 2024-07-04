@@ -1,0 +1,44 @@
+FROM centos:7.6.1810
+
+ARG gcc_version=10.2-2020.11
+ARG openssl_version=1_1_1d
+ENV SOURCE_DIR /root/source
+ENV GCC_VERSION $gcc_version
+ENV OPENSSL_VERSION $openssl_version
+
+# We want to have git 2.x for the maven scm plugin and also for boringssl
+RUN yum install -y http://opensource.wandisco.com/centos/6/git/x86_64/wandisco-git-release-6-1.noarch.rpm
+
+# Install requirements
+RUN  set -x && \
+  yum -y install epel-release && \
+  yum -y install wget tar git make autoconf automake libtool openssl-devel ninja-build gcc-c++ patch
+
+# Install Java
+RUN yum install -y java-1.8.0-openjdk-devel golang
+ENV JAVA_HOME="/usr/lib/jvm/java-1.8.0-openjdk/"
+
+# Install aarch64 gcc 10.2 toolchain
+RUN set -x && \
+  wget https://developer.arm.com/-/media/Files/downloads/gnu-a/$GCC_VERSION/binrel/gcc-arm-$GCC_VERSION-x86_64-aarch64-none-linux-gnu.tar.xz && \
+  tar xvf gcc-arm-$GCC_VERSION-x86_64-aarch64-none-linux-gnu.tar.xz
+ENV PATH="/gcc-arm-$GCC_VERSION-x86_64-aarch64-none-linux-gnu/bin:${PATH}"
+
+# Install CMake
+RUN yum install -y cmake3 && ln -s /usr/bin/cmake3 /usr/bin/cmake
+
+# Cross compile OpenSSL for aarch64 - share
+RUN set -x && \
+  wget https://github.com/openssl/openssl/archive/OpenSSL_$OPENSSL_VERSION.tar.gz && \
+  tar xvf OpenSSL_$OPENSSL_VERSION.tar.gz && \
+  pushd openssl-OpenSSL_$OPENSSL_VERSION && \
+  ./Configure linux-aarch64 --cross-compile-prefix=aarch64-none-linux-gnu- --prefix=/opt/openssl-$OPENSSL_VERSION-share shared && \
+  make && make install && \
+  popd
+
+WORKDIR /opt
+RUN curl https://downloads.apache.org/maven/maven-3/3.8.7/binaries/apache-maven-3.8.7-bin.tar.gz | tar -xz
+RUN echo 'PATH=/opt/apache-maven-3.8.7/bin/:$PATH' >> ~/.bashrc
+
+# Prepare our own build
+ENV PATH /opt/apache-maven-3.8.7/bin/:$PATH
